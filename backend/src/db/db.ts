@@ -6,10 +6,10 @@ export const connectDB = async () => {
       `${process.env.DATABASE_URL}`
     );
     console.log(
-      "DB connected successfully" + connectionInstance.connection.host
+      "DB connected successfully: " + connectionInstance.connection.host
     );
   } catch (error) {
-    console.log(error);
+    console.error("MongoDB connection error:", error);
     throw error;
   }
 };

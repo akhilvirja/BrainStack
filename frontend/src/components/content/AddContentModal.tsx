@@ -4,14 +4,15 @@ import { toast } from 'react-hot-toast';
 import {
   X,
   Video,
-  FileText,
-  FileBox,
-  Music,
+  Globe,
+  Hash,
+  FileCode,
   Link as LinkIcon,
   Plus,
   Check,
   Loader2,
-  Tags
+  Tags,
+  Sparkles
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
@@ -19,7 +20,7 @@ import { contentService } from '../../services/content.service';
 import type { CreateContentPayload } from '../../services/content.service';
 import { tagService } from '../../services/tag.service';
 
-type ContentType = 'article' | 'video' | 'image' | 'audio';
+export type SourceType = 'web' | 'youtube' | 'twitter' | 'google_docs';
 
 interface AddContentModalProps {
   isOpen: boolean;
@@ -28,7 +29,7 @@ interface AddContentModalProps {
 
 export const AddContentModal: React.FC<AddContentModalProps> = ({ isOpen, onClose }) => {
   const queryClient = useQueryClient();
-  const [type, setType] = useState<ContentType>('article');
+  const [type, setType] = useState<SourceType>('web');
 
   // form state
   const [formData, setFormData] = useState({
@@ -71,14 +72,14 @@ export const AddContentModal: React.FC<AddContentModalProps> = ({ isOpen, onClos
   const contentMutation = useMutation({
     mutationFn: (data: CreateContentPayload) => contentService.createContent(data),
     onSuccess: () => {
-      toast.success('Added to your stack!');
+      toast.success('Source added to your stack!');
       queryClient.invalidateQueries({ queryKey: ['content'] });
       queryClient.invalidateQueries({ queryKey: ['tags'] });
       handleClose();
     },
     onError: (err: any) => {
       const msg = err.response?.data?.meta?.message || err.response?.data?.message || err.message;
-      toast.error(msg || 'Failed to save content');
+      toast.error(msg || 'Failed to save source');
     },
   });
 
@@ -107,14 +108,33 @@ export const AddContentModal: React.FC<AddContentModalProps> = ({ isOpen, onClos
     createTagMutation.mutate(clean);
   };
 
+  // URL auto-detection for source type
+  const handleLinkChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setFormData((prev) => ({ ...prev, link: val }));
+
+    const lower = val.toLowerCase().trim();
+    if (lower.includes('youtube.com') || lower.includes('youtu.be')) {
+      setType('youtube');
+    } else if (lower.includes('twitter.com') || lower.includes('x.com')) {
+      setType('twitter');
+    } else if (lower.includes('docs.google.com')) {
+      setType('google_docs');
+    } else if (lower.startsWith('http://') || lower.startsWith('https://')) {
+      setType('web');
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
     contentMutation.mutate({
       title: formData.title,
       link: formData.link,
-      description: formData.description,
+      sourceUrl: formData.link,
+      sourceType: type,
       type,
+      description: formData.description,
       tags: selectedTags,
     });
   };
@@ -123,26 +143,31 @@ export const AddContentModal: React.FC<AddContentModalProps> = ({ isOpen, onClos
     setFormData({ title: '', link: '', description: '' });
     setSelectedTags([]);
     setNewTagInput('');
-    setType('article');
+    setType('web');
     onClose();
   };
 
   if (!isOpen) return null;
 
   const typeOptions = [
-    { id: 'article', label: 'Note', icon: <FileText size={16} /> },
-    { id: 'video', label: 'Video', icon: <Video size={16} /> },
-    { id: 'image', label: 'Image', icon: <FileBox size={16} /> },
-    { id: 'audio', label: 'Audio', icon: <Music size={16} /> },
+    { id: 'web', label: 'Web Article', icon: <Globe size={15} /> },
+    { id: 'youtube', label: 'YouTube', icon: <Video size={15} /> },
+    { id: 'twitter', label: 'X / Twitter', icon: <Hash size={15} /> },
+    { id: 'google_docs', label: 'Google Doc', icon: <FileCode size={15} /> },
   ] as const;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-charcoal/40 backdrop-blur-sm">
       <div className="bg-surface-container-lowest w-full max-w-lg rounded-2xl shadow-xl border border-warm-stone overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
 
-        {/* header */}
+        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-warm-stone shrink-0">
-          <h2 className="font-headline font-bold text-lg text-charcoal">Add Content</h2>
+          <div className="flex items-center gap-2">
+            <span className="w-7 h-7 rounded-lg bg-[#edf3f0] text-primary flex items-center justify-center">
+              <Sparkles size={16} />
+            </span>
+            <h2 className="font-headline font-bold text-lg text-charcoal">Add Source to Stack</h2>
+          </div>
           <button
             type="button"
             onClick={handleClose}
@@ -152,51 +177,56 @@ export const AddContentModal: React.FC<AddContentModalProps> = ({ isOpen, onClos
           </button>
         </div>
 
-        {/* scrollable body */}
+        {/* Scrollable body */}
         <form onSubmit={handleSubmit} className="p-6 flex flex-col gap-4 overflow-y-auto">
 
-          {/* type selector */}
-          <div className="flex gap-2 p-1 bg-surface-container-low rounded-xl border border-stone-border">
-            {typeOptions.map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => setType(opt.id)}
-                className={`flex-1 py-1.5 flex items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${type === opt.id
-                  ? 'bg-white text-primary shadow-xs'
-                  : 'text-on-surface-variant hover:text-charcoal'
-                  }`}
-              >
-                {opt.icon}
-                {opt.label}
-              </button>
-            ))}
+          {/* Source Type Selector */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">
+              Source Type
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 p-1 bg-surface-container-low rounded-xl border border-stone-border">
+              {typeOptions.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setType(opt.id)}
+                  className={`py-1.5 px-2 flex items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${type === opt.id
+                    ? 'bg-primary text-white shadow-xs'
+                    : 'text-on-surface-variant hover:text-charcoal'
+                    }`}
+                >
+                  {opt.icon}
+                  <span>{opt.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
 
           <Input
-            label="Title"
-            placeholder="e.g., System Design Fundamentals"
-            value={formData.title}
-            onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
+            label="Source URL"
+            placeholder="https://..."
+            icon={<LinkIcon size={16} />}
+            value={formData.link}
+            onChange={handleLinkChange}
             required
             autoFocus
           />
 
           <Input
-            label="URL Link"
-            placeholder="https://..."
-            icon={<LinkIcon size={16} />}
-            value={formData.link}
-            onChange={(e) => setFormData(prev => ({ ...prev, link: e.target.value }))}
+            label="Title"
+            placeholder="e.g., Designing Scalable Multi-Tenant Architectures"
+            value={formData.title}
+            onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
             required
           />
 
           <div className="flex flex-col gap-1.5">
-            <label className="font-headline text-xs font-semibold text-on-surface">Description (optional)</label>
+            <label className="font-headline text-xs font-semibold text-on-surface">Personal Synthesis or Notes (optional)</label>
             <textarea
               className="w-full p-3 rounded-xl bg-linen border border-stone-border text-charcoal text-sm focus:bg-white focus:outline-none focus:border-[#a8cfbd] focus:ring-1 focus:ring-[#3f6355] resize-none"
               rows={2}
-              placeholder="Brief summary or personal notes..."
+              placeholder="Key insights, quotes, or takeaways from this source..."
               value={formData.description}
               onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
             />
@@ -324,7 +354,7 @@ export const AddContentModal: React.FC<AddContentModalProps> = ({ isOpen, onClos
               fullWidth
               disabled={contentMutation.isPending}
             >
-              {contentMutation.isPending ? 'Saving...' : 'Save to Stack'}
+              {contentMutation.isPending ? 'Saving to Stack...' : 'Save Source to Stack'}
             </Button>
           </div>
         </form>

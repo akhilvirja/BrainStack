@@ -51,11 +51,12 @@ function App() {
 
         {/* Protected Dashboard Routes */}
         <Route element={<DashboardLayout />}>
-          <Route path="/dashboard" element={<DashboardHome pageTitle="All Notes" />} />
-          <Route path="/tweets" element={<DashboardHome filterType="tweet" pageTitle="Tweets & Threads" />} />
-          <Route path="/videos" element={<DashboardHome filterType="video" pageTitle="Videos & Lectures" />} />
-          <Route path="/documents" element={<DashboardHome filterType="document" pageTitle="Documents & Code" />} />
-          <Route path="/links" element={<DashboardHome filterType="link" pageTitle="Links & Bookmarks" />} />
+          <Route path="/dashboard" element={<DashboardHome pageTitle="All Knowledge" />} />
+          <Route path="/videos" element={<DashboardHome filterType="youtube" pageTitle="YouTube Videos" />} />
+          <Route path="/articles" element={<DashboardHome filterType="web" pageTitle="Web Articles" />} />
+          <Route path="/tweets" element={<DashboardHome filterType="twitter" pageTitle="X / Twitter Posts" />} />
+          <Route path="/documents" element={<DashboardHome filterType="google_docs" pageTitle="Published Google Docs" />} />
+          <Route path="/links" element={<Navigate to="/articles" replace />} />
           <Route path="/tags" element={<TagsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>

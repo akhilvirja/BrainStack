@@ -9,10 +9,9 @@ import {
   Check,
   X,
   Filter,
-  FileText,
+  Globe,
   Video,
   FileCode,
-  Link2,
   Hash
 } from 'lucide-react';
 import { tagService } from '../../services/tag.service';
@@ -20,15 +19,17 @@ import type { TagItem } from '../../services/tag.service';
 import { contentService } from '../../services/content.service';
 import { ContentCard } from '../../components/content/ContentCard';
 import type { ContentItem } from '../../components/content/ContentCard';
+import { SourceDetailModal } from '../../components/content/SourceDetailModal';
 import { toast } from 'react-hot-toast';
 
-type ContentTypeFilter = 'all' | 'article' | 'video' | 'document' | 'link' | 'tweet';
+type ContentTypeFilter = 'all' | 'web' | 'youtube' | 'twitter' | 'google_docs';
 
 export const TagsPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [newTagTitle, setNewTagTitle] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<ContentTypeFilter>('all');
+  const [selectedDetailItem, setSelectedDetailItem] = useState<ContentItem | null>(null);
 
   // Fetch all user tags
   const { data: tags = [], isLoading: isLoadingTags } = useQuery({
@@ -122,11 +123,22 @@ export const TagsPage: React.FC = () => {
   const tabCounts = useMemo(() => {
     return {
       all: taggedContent.length,
-      article: taggedContent.filter((i) => (i.type || 'note') === 'article' || (i.type || 'note') === 'note').length,
-      video: taggedContent.filter((i) => i.type === 'video').length,
-      document: taggedContent.filter((i) => i.type === 'document').length,
-      link: taggedContent.filter((i) => i.type === 'link' || i.type === 'bookmark').length,
-      tweet: taggedContent.filter((i) => i.type === 'tweet').length,
+      web: taggedContent.filter((i) => {
+        const t = (i.sourceType || i.type || 'web').toLowerCase();
+        return t === 'web' || t === 'article' || t === 'link' || t === 'note' || t === 'bookmark';
+      }).length,
+      youtube: taggedContent.filter((i) => {
+        const t = (i.sourceType || i.type || '').toLowerCase();
+        return t === 'youtube' || t === 'video';
+      }).length,
+      twitter: taggedContent.filter((i) => {
+        const t = (i.sourceType || i.type || '').toLowerCase();
+        return t === 'twitter' || t === 'tweet';
+      }).length,
+      google_docs: taggedContent.filter((i) => {
+        const t = (i.sourceType || i.type || '').toLowerCase();
+        return t === 'google_docs' || t === 'document';
+      }).length,
     };
   }, [taggedContent]);
 
@@ -134,23 +146,27 @@ export const TagsPage: React.FC = () => {
   const displayContent = useMemo(() => {
     if (activeTab === 'all') return taggedContent;
     return taggedContent.filter((item) => {
-      const itemType = (item.type || 'note').toLowerCase();
-      if (activeTab === 'article') return itemType === 'article' || itemType === 'note';
-      if (activeTab === 'video') return itemType === 'video';
-      if (activeTab === 'document') return itemType === 'document';
-      if (activeTab === 'link') return itemType === 'link' || itemType === 'bookmark';
-      if (activeTab === 'tweet') return itemType === 'tweet';
+      const itemType = (item.sourceType || item.type || 'web').toLowerCase();
+      if (activeTab === 'web') return itemType === 'web' || itemType === 'article' || itemType === 'link' || itemType === 'note' || itemType === 'bookmark';
+      if (activeTab === 'youtube') return itemType === 'youtube' || itemType === 'video';
+      if (activeTab === 'twitter') return itemType === 'twitter' || itemType === 'tweet';
+      if (activeTab === 'google_docs') return itemType === 'google_docs' || itemType === 'document';
       return true;
     });
   }, [taggedContent, activeTab]);
 
+  // Keep selected detail item live-synced with react-query cache updates
+  const activeDetailItem = useMemo(() => {
+    if (!selectedDetailItem) return null;
+    return content.find((i: ContentItem) => i._id === selectedDetailItem._id) || selectedDetailItem;
+  }, [content, selectedDetailItem]);
+
   const tabsConfig = [
-    { id: 'all', label: 'All Types', icon: <TagIcon size={14} />, count: tabCounts.all },
-    { id: 'article', label: 'Notes', icon: <FileText size={14} />, count: tabCounts.article },
-    { id: 'video', label: 'Videos', icon: <Video size={14} />, count: tabCounts.video },
-    { id: 'document', label: 'Documents', icon: <FileCode size={14} />, count: tabCounts.document },
-    { id: 'link', label: 'Links', icon: <Link2 size={14} />, count: tabCounts.link },
-    { id: 'tweet', label: 'Tweets', icon: <Hash size={14} />, count: tabCounts.tweet },
+    { id: 'all', label: 'All Sources', icon: <TagIcon size={14} />, count: tabCounts.all },
+    { id: 'web', label: 'Web Articles', icon: <Globe size={14} />, count: tabCounts.web },
+    { id: 'youtube', label: 'YouTube', icon: <Video size={14} />, count: tabCounts.youtube },
+    { id: 'twitter', label: 'X / Twitter', icon: <Hash size={14} />, count: tabCounts.twitter },
+    { id: 'google_docs', label: 'Google Docs', icon: <FileCode size={14} />, count: tabCounts.google_docs },
   ] as const;
 
   const isLoading = isLoadingTags || isLoadingContent;
@@ -332,11 +348,23 @@ export const TagsPage: React.FC = () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 items-start">
             {displayContent.map((item: ContentItem) => (
-              <ContentCard key={item._id} content={item} />
+              <ContentCard
+                key={item._id}
+                content={item}
+                onOpenDetail={(target) => setSelectedDetailItem(target)}
+              />
             ))}
           </div>
         )}
       </div>
+
+      {/* Source Detail Modal */}
+      <SourceDetailModal
+        item={activeDetailItem}
+        isOpen={Boolean(activeDetailItem)}
+        onClose={() => setSelectedDetailItem(null)}
+        onDeleted={() => setSelectedDetailItem(null)}
+      />
     </div>
   );
 };

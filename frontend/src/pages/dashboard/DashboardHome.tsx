@@ -14,6 +14,7 @@ import { tagService } from '../../services/tag.service';
 import { ContentCard } from '../../components/content/ContentCard';
 import type { ContentItem } from '../../components/content/ContentCard';
 import { AddContentModal } from '../../components/content/AddContentModal';
+import { SourceDetailModal } from '../../components/content/SourceDetailModal';
 
 interface DashboardHomeProps {
   filterType?: string;
@@ -26,6 +27,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
 }) => {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedDetailItem, setSelectedDetailItem] = useState<ContentItem | null>(null);
 
   const { data: content, isLoading, isError, error } = useQuery({
     queryKey: ['content'],
@@ -43,15 +45,21 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
 
   const rawItems: ContentItem[] = content || [];
 
-  // Scope items by route filterType (e.g., tweet, video, document, link)
+  // Keep selected detail item live-synced with react-query cache updates
+  const activeDetailItem = useMemo(() => {
+    if (!selectedDetailItem) return null;
+    return rawItems.find((i) => i._id === selectedDetailItem._id) || selectedDetailItem;
+  }, [rawItems, selectedDetailItem]);
+
+  // Scope items by route filterType (youtube, web, twitter, google_docs)
   const scopedItems = useMemo(() => {
     if (!filterType) return rawItems;
     return rawItems.filter((item) => {
-      const itemType = (item.type || 'note').toLowerCase();
-      if (filterType === 'document' && itemType !== 'document') return false;
-      if (filterType === 'video' && itemType !== 'video') return false;
-      if (filterType === 'tweet' && itemType !== 'tweet') return false;
-      if (filterType === 'link' && itemType !== 'link' && itemType !== 'bookmark') return false;
+      const itemType = (item.sourceType || item.type || 'web').toLowerCase();
+      if (filterType === 'youtube' && itemType !== 'youtube' && itemType !== 'video') return false;
+      if (filterType === 'twitter' && itemType !== 'twitter' && itemType !== 'tweet') return false;
+      if (filterType === 'google_docs' && itemType !== 'google_docs' && itemType !== 'document') return false;
+      if (filterType === 'web' && itemType !== 'web' && itemType !== 'article' && itemType !== 'link' && itemType !== 'bookmark') return false;
       return true;
     });
   }, [rawItems, filterType]);
@@ -258,7 +266,11 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 items-start">
           {filteredItems.map((item) => (
-            <ContentCard key={item._id} content={item} />
+            <ContentCard
+              key={item._id}
+              content={item}
+              onOpenDetail={(target) => setSelectedDetailItem(target)}
+            />
           ))}
         </div>
       )}
@@ -290,6 +302,14 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
       <AddContentModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
+      />
+
+      {/* Source Detail Modal / Reader Drawer */}
+      <SourceDetailModal
+        item={activeDetailItem}
+        isOpen={Boolean(activeDetailItem)}
+        onClose={() => setSelectedDetailItem(null)}
+        onDeleted={() => setSelectedDetailItem(null)}
       />
     </div>
   );

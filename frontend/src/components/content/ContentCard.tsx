@@ -1,20 +1,21 @@
 import React, { useState } from 'react';
 import {
-  FolderOpen,
   Video,
   Hash,
-  Link2,
-  Code,
   Play,
   ExternalLink,
   Trash2,
-  Copy,
   Globe,
   Bookmark,
   Share2,
   Heart,
   Repeat,
-  MessageSquare
+  MessageSquare,
+  FileCode,
+  RotateCw,
+  AlertCircle,
+  Loader2,
+  Clock
 } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { contentService } from '../../services/content.service';
@@ -25,7 +26,14 @@ export interface ContentItem {
   title: string;
   description?: string;
   link?: string;
-  type?: 'image' | 'video' | 'article' | 'audio' | 'tweet' | 'link' | 'document' | 'note' | 'bookmark' | string;
+  sourceUrl?: string;
+  canonicalUrl?: string;
+  type?: string;
+  sourceType?: 'youtube' | 'web' | 'twitter' | 'google_docs' | string;
+  status?: 'pending' | 'processing' | 'completed' | 'failed' | string;
+  errorMessage?: string | null;
+  extractedText?: string;
+  metadata?: any;
   tags?: Array<{ _id?: string; title: string } | string>;
   createdAt?: string;
   updatedAt?: string;
@@ -33,17 +41,27 @@ export interface ContentItem {
 
 interface ContentCardProps {
   content: ContentItem;
+  onOpenDetail?: (item: ContentItem) => void;
 }
+
+const formatSeconds = (totalSec: number): string => {
+  const m = Math.floor(totalSec / 60);
+  const s = Math.floor(totalSec % 60);
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+};
 
 const formatDate = (dateString?: string) => {
   if (!dateString) return 'Recently';
-  const date = new Date(dateString);
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
+  try {
+    const date = new Date(dateString);
+    return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
+  } catch {
+    return 'Recently';
+  }
 };
 
-export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
+export const ContentCard: React.FC<ContentCardProps> = ({ content, onOpenDetail }) => {
   const queryClient = useQueryClient();
-  const [copied, setCopied] = useState(false);
   const [isBookmarked, setIsBookmarked] = useState(false);
 
   const deleteMutation = useMutation({
@@ -58,6 +76,18 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
     },
   });
 
+  const retryMutation = useMutation({
+    mutationFn: (id: string) => contentService.retryExtraction(id),
+    onSuccess: () => {
+      toast.success('Re-extracting content...');
+      queryClient.invalidateQueries({ queryKey: ['content'] });
+    },
+    onError: (err: any) => {
+      const msg = err.response?.data?.meta?.message || err.message;
+      toast.error(msg || 'Failed to retry extraction');
+    },
+  });
+
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (confirm(`Delete "${content.title}"?`)) {
@@ -65,34 +95,43 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
     }
   };
 
-  const handleCopy = (e: React.MouseEvent, text: string) => {
+  const handleRetry = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(text);
-      setCopied(true);
-      toast.success('Copied to clipboard');
-      setTimeout(() => setCopied(false), 2000);
-    }
+    retryMutation.mutate(content._id);
   };
 
   const handleShare = (e: React.MouseEvent) => {
     e.stopPropagation();
+    const targetLink = content.sourceUrl || content.link || window.location.href;
     if (navigator.clipboard) {
-      navigator.clipboard.writeText(content.link || window.location.href);
+      navigator.clipboard.writeText(targetLink);
       toast.success('Link copied to clipboard');
     }
   };
 
-  const type = (content.type || 'note').toLowerCase();
+  const handleExternalLink = (e: React.MouseEvent) => {
+    e.stopPropagation();
+  };
+
+  // Resolve to one of the 4 strict V1 source types
+  const resolvedType = (content.sourceType || content.type || 'web').toLowerCase();
+  const isYoutube = resolvedType === 'youtube' || resolvedType === 'video';
+  const isTwitter = resolvedType === 'twitter' || resolvedType === 'tweet';
+  const isGoogleDocs = resolvedType === 'google_docs' || resolvedType === 'document';
+  const isWeb = !isYoutube && !isTwitter && !isGoogleDocs;
+
+  const effectiveLink = content.sourceUrl || content.link || '';
+  const status = content.status || 'completed';
+  const metadata = content.metadata || {};
 
   // Extract clean domain if link exists
   let domain = '';
-  if (content.link) {
+  if (effectiveLink) {
     try {
-      const url = new URL(content.link.startsWith('http') ? content.link : `https://${content.link}`);
+      const url = new URL(effectiveLink.startsWith('http') ? effectiveLink : `https://${effectiveLink}`);
       domain = url.hostname.replace('www.', '');
     } catch {
-      domain = content.link;
+      domain = effectiveLink;
     }
   }
 
@@ -104,41 +143,76 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
 
   // Render Category Label & Icon
   const getCategoryConfig = () => {
-    switch (type) {
-      case 'video':
-        return { icon: <Video size={15} />, label: 'Videos' };
-      case 'tweet':
-        return { icon: <Hash size={15} />, label: 'Productivity Tip' };
-      case 'link':
-      case 'bookmark':
-        return { icon: <Link2 size={15} />, label: 'Links' };
-      case 'document':
-        return { icon: <Code size={15} />, label: 'Documents' };
-      case 'note':
-      case 'article':
-      default:
-        return { icon: <FolderOpen size={15} />, label: 'Project Ideas' };
+    if (isYoutube) {
+      return { icon: <Video size={14} />, label: 'YouTube Video' };
     }
+    if (isTwitter) {
+      return { icon: <Hash size={14} />, label: 'X / Twitter' };
+    }
+    if (isGoogleDocs) {
+      return { icon: <FileCode size={14} />, label: 'Google Doc' };
+    }
+    return { icon: <Globe size={14} />, label: 'Web Article' };
   };
 
   const { icon, label } = getCategoryConfig();
 
+  // YouTube Video ID and Thumbnail
+  const videoId = metadata.videoId || (() => {
+    if (!isYoutube || !effectiveLink) return null;
+    const match = effectiveLink.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([a-zA-Z0-9_-]{11})/i);
+    return match ? match[1] : null;
+  })();
+
+  const youtubeThumbnail = metadata.thumbnailUrl || (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : null);
+
   return (
-    <div className="group bg-white border border-stone-border hover:border-[#ccd4cf] rounded-xl p-5 shadow-xs hover:shadow-md hover:shadow-black/3 transition-all duration-200 flex flex-col justify-between relative overflow-hidden h-full">
+    <div
+      onClick={() => onOpenDetail && onOpenDetail(content)}
+      className="group bg-white border border-stone-border hover:border-primary/40 rounded-xl p-5 shadow-xs hover:shadow-md hover:shadow-primary/5 transition-all duration-200 flex flex-col justify-between relative overflow-hidden h-full cursor-pointer"
+    >
       <div className="flex flex-col gap-3.5">
-        {/* Card Header: Category & Hover Actions */}
+        {/* Card Header: Category, Status & Action Icons */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-[#edf3f0] border border-[#d6e5de] text-primary">
               {icon}
             </span>
             <span className="text-xs font-semibold text-[#474c47]">{label}</span>
+
+            {/* Status indicator */}
+            {(status === 'pending' || status === 'processing') && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                <Loader2 size={10} className="animate-spin" />
+                <span>Extracting</span>
+              </span>
+            )}
+            {status === 'failed' && (
+              <div className="flex items-center gap-1">
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-red-600 bg-red-50 px-2 py-0.5 rounded-full border border-red-200">
+                  <AlertCircle size={10} />
+                  <span>Failed</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={handleRetry}
+                  disabled={retryMutation.isPending}
+                  className="p-1 text-primary hover:text-[#2d4d40] hover:bg-[#edf3f0] rounded transition-colors"
+                  title="Retry extraction"
+                >
+                  <RotateCw size={11} className={retryMutation.isPending ? 'animate-spin' : ''} />
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
             <button
               type="button"
-              onClick={() => setIsBookmarked(!isBookmarked)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsBookmarked(!isBookmarked);
+              }}
               className={`p-1 rounded-md transition-colors ${isBookmarked
                 ? 'text-primary bg-primary/10'
                 : 'text-outline hover:text-on-surface hover:bg-surface-container-low'
@@ -151,46 +225,66 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
               type="button"
               onClick={handleShare}
               className="p-1 rounded-md text-outline hover:text-on-surface hover:bg-surface-container-low transition-colors"
-              title="Share"
+              title="Share link"
             >
               <Share2 size={15} />
             </button>
             <button
               type="button"
               onClick={handleDelete}
-              className="p-1 rounded-md text-outline hover:text-error hover:bg-error-container/40 transition-colors"
-              title="Delete"
+              className="p-1 rounded-md text-outline hover:text-error hover:bg-red-50 transition-colors"
+              title="Delete source"
             >
               <Trash2 size={15} />
             </button>
           </div>
         </div>
 
-        {/* Card Content based on type */}
+        {/* Card Content based on source type */}
         <div>
           {/* TITLE */}
-          <h2 className="font-headline font-semibold text-sm text-charcoal-text tracking-tight mb-2 flex items-start justify-between gap-1.5">
-            <span>{content.title}</span>
-            {content.link && (type === 'link' || type === 'bookmark') && (
-              <ExternalLink size={14} className="text-outline shrink-0 mt-0.5 group-hover:text-primary transition-colors" />
+          <h2 className="font-headline font-semibold text-sm text-charcoal-text tracking-tight mb-2 flex items-start justify-between gap-1.5 group-hover:text-primary transition-colors">
+            <span className="line-clamp-2">{content.title}</span>
+            {effectiveLink && (
+              <a
+                href={effectiveLink.startsWith('http') ? effectiveLink : `https://${effectiveLink}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={handleExternalLink}
+                className="text-outline shrink-0 mt-0.5 hover:text-primary transition-colors"
+                title="Open original webpage"
+              >
+                <ExternalLink size={14} />
+              </a>
             )}
           </h2>
 
-          {/* VIDEO VARIANT */}
-          {type === 'video' && (
+          {/* YOUTUBE VARIANT */}
+          {isYoutube && (
             <div className="flex flex-col gap-2">
-              <div
-                onClick={() => content.link && window.open(content.link, '_blank')}
-                className="relative w-full h-36 rounded-lg overflow-hidden group/vid cursor-pointer mb-1 bg-[#1f2522] border border-warm-stone flex items-center justify-center"
-              >
+              <div className="relative w-full h-36 rounded-lg overflow-hidden group/vid mb-1 bg-[#1f2522] border border-warm-stone flex items-center justify-center">
+                {youtubeThumbnail ? (
+                  <img
+                    src={youtubeThumbnail}
+                    alt={content.title}
+                    className="w-full h-full object-cover group-hover/vid:scale-105 transition-transform duration-300"
+                  />
+                ) : null}
                 <div className="absolute inset-0 bg-on-surface/30 flex items-center justify-center group-hover/vid:bg-on-surface/20 transition-all">
                   <span className="w-10 h-10 rounded-full bg-white/95 text-primary flex items-center justify-center shadow-md group-hover/vid:scale-110 transition-transform">
                     <Play size={18} className="fill-primary ml-0.5" />
                   </span>
                 </div>
-                <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between text-white text-[11px] px-2 py-1 rounded bg-[#1f2522]/80 backdrop-blur-sm border border-white/10 font-medium">
-                  <span className="truncate max-w-35">{domain || 'Video Stream'}</span>
-                  <span className="bg-white/20 px-1 rounded text-[10px]">Play</span>
+                <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between text-white text-[11px] px-2 py-1 rounded bg-[#1f2522]/85 backdrop-blur-sm border border-white/10 font-medium">
+                  <span className="truncate max-w-35">{metadata.channelTitle || domain || 'YouTube'}</span>
+                  {metadata.duration ? (
+                    <span className="bg-white/20 px-1.5 py-0.2 rounded text-[10px] font-mono flex items-center gap-0.5">
+                      <Clock size={10} />
+                      {formatSeconds(metadata.duration)}
+                    </span>
+                  ) : (
+                    <span className="bg-white/20 px-1 rounded text-[10px]">Watch</span>
+                  )}
                 </div>
               </div>
               {content.description && (
@@ -201,75 +295,76 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
             </div>
           )}
 
-          {/* TWEET VARIANT */}
-          {type === 'tweet' && (
+          {/* X / TWITTER VARIANT */}
+          {isTwitter && (
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2 mb-1">
-                <div className="w-7 h-7 rounded-full bg-surface-container border border-stone-border flex items-center justify-center text-xs font-bold text-primary">
-                  {content.title.substring(0, 2).toUpperCase()}
-                </div>
-                <div className="leading-tight">
-                  <p className="text-xs text-charcoal-text font-semibold">{content.title}</p>
-                  <p className="text-[10px] text-outline">@{content.title.toLowerCase().replace(/\s+/g, '')}</p>
+                {metadata.profileImageUrl ? (
+                  <img
+                    src={metadata.profileImageUrl}
+                    alt={metadata.authorName || 'Author'}
+                    className="w-7 h-7 rounded-full object-cover border border-stone-border"
+                  />
+                ) : (
+                  <div className="w-7 h-7 rounded-full bg-surface-container border border-stone-border flex items-center justify-center text-xs font-bold text-primary">
+                    {(metadata.authorName || content.title).substring(0, 2).toUpperCase()}
+                  </div>
+                )}
+                <div className="leading-tight truncate">
+                  <p className="text-xs text-charcoal-text font-semibold truncate">
+                    {metadata.authorName || content.title}
+                  </p>
+                  <p className="text-[10px] text-outline truncate">
+                    @{metadata.authorHandle || domain.replace(/^twitter\.com|^x\.com/, 'user')}
+                  </p>
                 </div>
               </div>
 
               {content.description && (
-                <blockquote className="text-xs text-on-surface-variant bg-surface-container-low border border-[#deded5] p-3 rounded-lg leading-relaxed relative">
+                <blockquote className="text-xs text-on-surface-variant bg-surface-container-low border border-[#deded5] p-3 rounded-lg leading-relaxed relative line-clamp-3">
                   <span className="text-primary-fixed font-serif text-lg absolute top-0.5 left-2 select-none">“</span>
                   <p className="relative z-10 pl-2">{content.description}</p>
                 </blockquote>
               )}
 
               <div className="flex items-center gap-3.5 text-outline text-[11px] mt-1 px-1 font-medium">
-                <span className="flex items-center gap-1 hover:text-[#c46860] cursor-pointer transition-colors">
-                  <Heart size={13} /> 1.2k
+                <span className="flex items-center gap-1 hover:text-[#c46860] transition-colors">
+                  <Heart size={13} className="text-[#e0245e]" /> {(metadata.likes || 0).toLocaleString()}
                 </span>
-                <span className="flex items-center gap-1 hover:text-primary cursor-pointer transition-colors">
-                  <Repeat size={13} /> 342
+                <span className="flex items-center gap-1 hover:text-primary transition-colors">
+                  <Repeat size={13} className="text-[#17bf63]" /> {(metadata.retweets || 0).toLocaleString()}
                 </span>
-                <span className="flex items-center gap-1 hover:text-primary cursor-pointer transition-colors">
-                  <MessageSquare size={13} /> 89
+                <span className="flex items-center gap-1 hover:text-primary transition-colors">
+                  <MessageSquare size={13} /> {(metadata.replies || 0).toLocaleString()}
                 </span>
               </div>
             </div>
           )}
 
-          {/* LINK VARIANT */}
-          {(type === 'link' || type === 'bookmark') && (
-            <div
-              onClick={() => content.link && window.open(content.link, '_blank')}
-              className="rounded-lg overflow-hidden bg-gradient-to-br from-[#edf3f0] via-surface-container-low to-[#f3f4ef] border border-[#dce6e0] p-3 mb-1 flex flex-col justify-between gap-1.5 cursor-pointer hover:border-[#a8cfbd] transition-all"
-            >
+          {/* PUBLISHED GOOGLE DOCS VARIANT */}
+          {isGoogleDocs && (
+            <div className="rounded-lg overflow-hidden bg-gradient-to-br from-[#edf3f0] via-surface-container-low to-[#f3f4ef] border border-[#dce6e0] p-3.5 mb-1 flex flex-col justify-between gap-2">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] text-primary font-bold tracking-wider uppercase font-mono">
-                  {domain || 'EXTERNAL SOURCE'}
+                  docs.google.com
+                </span>
+                <FileCode size={14} className="text-primary" />
+              </div>
+              <p className="text-xs text-on-surface-variant line-clamp-3 leading-relaxed">
+                {content.description || 'Published document source. Click to open and read full contents.'}
+              </p>
+            </div>
+          )}
+
+          {/* PUBLIC WEB ARTICLE VARIANT */}
+          {isWeb && (
+            <div className="rounded-lg overflow-hidden bg-gradient-to-br from-[#edf3f0] via-surface-container-low to-[#f3f4ef] border border-[#dce6e0] p-3 mb-1 flex flex-col justify-between gap-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-primary font-bold tracking-wider uppercase font-mono">
+                  {metadata.siteName || domain || 'WEB ARTICLE'}
                 </span>
                 <Globe size={13} className="text-primary" />
               </div>
-              {content.description && (
-                <p className="text-xs text-on-surface-variant line-clamp-3 leading-relaxed">
-                  {content.description}
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* DOCUMENT / CODE VARIANT */}
-          {type === 'document' && (
-            <div className="flex flex-col gap-1.5">
-              <div className="bg-[#242926] border border-[#343b37] rounded-lg p-3 font-mono text-[11px] leading-5 text-[#d8ded9] overflow-x-auto select-all">
-                <div className="text-[#7c8880] font-semibold mb-1 select-none text-[10px]"># code snippet</div>
-                <p className="text-[#bdeddd] break-words whitespace-pre-wrap">
-                  {content.description || content.link || '// No source provided'}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* NOTE / ARTICLE DEFAULT VARIANT */}
-          {(type === 'note' || type === 'article') && (
-            <div className="flex flex-col gap-2">
               {content.description && (
                 <p className="text-xs text-on-surface-variant line-clamp-3 leading-relaxed">
                   {content.description}
@@ -285,7 +380,7 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
             {tagsList.map((tag, idx) => (
               <span
                 key={idx}
-                className="inline-flex items-center px-2 py-0.5 rounded-full bg-[#f1f1ec] hover:bg-[#e7ece8] text-on-surface-variant hover:text-primary text-[11px] font-medium cursor-pointer transition-colors border border-transparent hover:border-[#ccd4cf]"
+                className="inline-flex items-center px-2 py-0.5 rounded-full bg-[#f1f1ec] text-on-surface-variant text-[11px] font-medium border border-transparent"
               >
                 #{tag}
               </span>
@@ -296,33 +391,12 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
 
       {/* CARD FOOTER */}
       <div className="pt-3 mt-3 border-t border-[#f0f0ea] flex items-center justify-between text-outline text-[11px]">
-        <span>Added on {formatDate(content.createdAt)}</span>
+        <span>Added {formatDate(content.createdAt)}</span>
 
-        {type === 'document' ? (
-          <button
-            type="button"
-            onClick={(e) => handleCopy(e, content.description || content.title)}
-            className="flex items-center gap-1 text-primary hover:text-[#2d4d40] font-medium text-xs transition-colors cursor-pointer"
-          >
-            <Copy size={13} />
-            <span>{copied ? 'Copied' : 'Copy'}</span>
-          </button>
-        ) : content.link ? (
-          <a
-            href={content.link.startsWith('http') ? content.link : `https://${content.link}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary font-medium text-xs hover:underline flex items-center gap-1"
-          >
-            <span>Visit page</span>
-            <ExternalLink size={12} />
-          </a>
-        ) : (
-          <span className="flex items-center gap-1.5 font-medium text-[#5c645e]">
-            <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block animate-pulse"></span>
-            Synced
-          </span>
-        )}
+        <span className="text-primary font-medium text-xs flex items-center gap-1 group-hover:underline">
+          <span>Read & View</span>
+          <ExternalLink size={12} />
+        </span>
       </div>
     </div>
   );

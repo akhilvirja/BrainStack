@@ -4,11 +4,10 @@ import { useAuthStore } from '../../store/useAuthStore';
 import {
   Layers,
   Search,
-  FileText,
+  Globe,
   Hash,
   PlaySquare,
   FileCode,
-  Link2,
   Tag,
   Settings,
   ChevronsUpDown,
@@ -85,12 +84,12 @@ export const Sidebar: React.FC = () => {
 
       {/* Navigation Links */}
       <nav className="flex-1 px-3 flex flex-col gap-1 overflow-y-auto">
-        <NavItem to="/dashboard" icon={<FileText size={17} />} label="All Notes" />
-        <NavItem to="/tweets" icon={<Hash size={17} />} label="Tweets" />
-        <NavItem to="/videos" icon={<PlaySquare size={17} />} label="Videos" />
-        <NavItem to="/documents" icon={<FileCode size={17} />} label="Documents" />
-        <NavItem to="/links" icon={<Link2 size={17} />} label="Links" />
-        <NavItem to="/tags" icon={<Tag size={17} />} label="Tags" />
+        <NavItem to="/dashboard" icon={<Layers size={17} />} label="All Sources" />
+        <NavItem to="/articles" icon={<Globe size={17} />} label="Web Articles" />
+        <NavItem to="/videos" icon={<PlaySquare size={17} />} label="YouTube" />
+        <NavItem to="/tweets" icon={<Hash size={17} />} label="X / Twitter" />
+        <NavItem to="/documents" icon={<FileCode size={17} />} label="Google Docs" />
+        <NavItem to="/tags" icon={<Tag size={17} />} label="Tags & Taxonomy" />
 
         <div className="my-2 mx-2 h-px bg-warm-stone"></div>
         <NavItem to="/settings" icon={<Settings size={17} />} label="Settings" />
