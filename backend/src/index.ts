@@ -12,13 +12,50 @@ const app = express()
 
 connectDB();
 
-const corsOrigin = process.env.CORS_ORIGIN;
+const rawCorsOrigin = process.env.CORS_ORIGIN;
+const allowedOrigins = rawCorsOrigin
+    ? rawCorsOrigin.split(",").map((o) => o.trim().replace(/\/$/, ""))
+    : [];
+
 app.use(
     cors({
-        origin: corsOrigin ? corsOrigin.split(",").map((o) => o.trim()) : "*",
+        origin: (origin, callback) => {
+            // Allow requests with no origin (mobile apps, curl, server-to-server)
+            if (!origin) {
+                return callback(null, true);
+            }
+
+            const cleanOrigin = origin.replace(/\/$/, "");
+
+            // If CORS_ORIGIN is not set, or is "*", reflect origin dynamically so credentials are permitted
+            if (!rawCorsOrigin || rawCorsOrigin === "*" || allowedOrigins.includes("*")) {
+                return callback(null, true);
+            }
+
+            // Exact match (ignoring trailing slash)
+            if (allowedOrigins.includes(cleanOrigin)) {
+                return callback(null, true);
+            }
+
+            // Allow localhost for local development & testing
+            if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(cleanOrigin)) {
+                return callback(null, true);
+            }
+
+            // Allow Vercel preview & production URLs if vercel.app is configured
+            if (
+                allowedOrigins.some((o) => o.includes("vercel.app")) &&
+                cleanOrigin.endsWith(".vercel.app")
+            ) {
+                return callback(null, true);
+            }
+
+            return callback(null, false);
+        },
         credentials: true,
         methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allowedHeaders: ["Content-Type", "Authorization"],
+        allowedHeaders: ["Content-Type", "Authorization", "Accept", "X-Requested-With", "Origin"],
+        optionsSuccessStatus: 200,
     })
 );
 
