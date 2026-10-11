@@ -10,9 +10,11 @@ export interface CreateContentPayload {
 }
 
 export const contentService = {
-  getAllContent: async (): Promise<{ content: ContentItem[] } | ContentItem[]> => {
+  getAllContent: async (): Promise<ContentItem[]> => {
     const response = await api.get('/content');
-    return response.data;
+    const result = response.data;
+    if (Array.isArray(result?.data?.contents)) return result.data.contents;
+    return [];
   },
 
   createContent: async (data: CreateContentPayload) => {

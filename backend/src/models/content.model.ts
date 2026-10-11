@@ -1,17 +1,19 @@
 import mongoose from "mongoose";
 
-const contentTypes = ["image", "video", "article", "audio"]
+const contentTypes = ["image", "video", "article", "audio", "tweet", "link", "document", "note", "bookmark"];
 
 const contentSchema = new mongoose.Schema(
     {
         link: {
             type: String,
             required: true,
+            default: "",
         },
         type: {
             type: String,
             enum: contentTypes,
             required: true,
+            default: "note",
         },
         title: {
             type: String,

@@ -4,7 +4,9 @@
   /* Sage & Stone Typography */
   --font-sans: "Plus Jakarta Sans", sans-serif;
   --font-headline: "Plus Jakarta Sans", sans-serif;
+  --font-display: "Plus Jakarta Sans", sans-serif;
   --font-body: "Plus Jakarta Sans", sans-serif;
+  --font-label: "Plus Jakarta Sans", sans-serif;
 
   /* Color Palette */
   --color-surface: #f9f9f6;
@@ -41,6 +43,9 @@
   /* Custom Sage Variants from mockups */
   --color-sage: #6b9080;
   --color-sage-dark: #52796f;
+  --color-sage-brand: #52796f;
+  --color-sage-accent: #6b9080;
+  --color-sage-panel: #e8ede9;
   --color-sage-light: #eaf2ee;
   --color-sage-deep: #2f3e46;
   --color-spruce: #283618;
