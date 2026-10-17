@@ -20,6 +20,7 @@ import {
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { contentService } from '../../services/content.service';
 import { toast } from 'react-hot-toast';
+import { ConfirmModal } from '../ui/ConfirmModal';
 
 export interface ContentItem {
   _id: string;
@@ -63,10 +64,12 @@ const formatDate = (dateString?: string) => {
 export const ContentCard: React.FC<ContentCardProps> = ({ content, onOpenDetail }) => {
   const queryClient = useQueryClient();
   const [isBookmarked, setIsBookmarked] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => contentService.deleteContent(id),
     onSuccess: () => {
+      setIsDeleteModalOpen(false);
       toast.success('Removed from your stack');
       queryClient.invalidateQueries({ queryKey: ['content'] });
     },
@@ -90,9 +93,11 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content, onOpenDetail 
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm(`Delete "${content.title}"?`)) {
-      deleteMutation.mutate(content._id);
-    }
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    deleteMutation.mutate(content._id);
   };
 
   const handleRetry = (e: React.MouseEvent) => {
@@ -398,6 +403,17 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content, onOpenDetail 
           <ExternalLink size={12} />
         </span>
       </div>
+
+      <ConfirmModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={handleConfirmDelete}
+        title="Delete Content"
+        message={`Are you sure you want to delete "${content.title}"? This cannot be undone.`}
+        confirmText="Delete"
+        variant="danger"
+        isLoading={deleteMutation.isPending}
+      />
     </div>
   );
 };

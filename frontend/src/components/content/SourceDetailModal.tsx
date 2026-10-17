@@ -30,6 +30,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { contentService } from '../../services/content.service';
 import type { ContentItem } from './ContentCard';
 import { toast } from 'react-hot-toast';
+import { ConfirmModal } from '../ui/ConfirmModal';
 
 interface SourceDetailModalProps {
   item: ContentItem | null;
@@ -73,6 +74,7 @@ export const SourceDetailModal: React.FC<SourceDetailModalProps> = ({
   const [copiedText, setCopiedText] = useState(false);
   const [isAddingTag, setIsAddingTag] = useState(false);
   const [newTagInput, setNewTagInput] = useState('');
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   // Retry mutation
   const retryMutation = useMutation({
@@ -91,6 +93,7 @@ export const SourceDetailModal: React.FC<SourceDetailModalProps> = ({
   const deleteMutation = useMutation({
     mutationFn: (id: string) => contentService.deleteContent(id),
     onSuccess: () => {
+      setIsDeleteModalOpen(false);
       toast.success('Source deleted');
       queryClient.invalidateQueries({ queryKey: ['content'] });
       if (item && onDeleted) onDeleted(item._id);
@@ -190,7 +193,11 @@ export const SourceDetailModal: React.FC<SourceDetailModalProps> = ({
   };
 
   const handleDelete = () => {
-    if (confirm(`Are you sure you want to delete "${item.title}"? This cannot be undone.`)) {
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (item) {
       deleteMutation.mutate(item._id);
     }
   };
@@ -776,6 +783,17 @@ export const SourceDetailModal: React.FC<SourceDetailModalProps> = ({
           )}
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={handleConfirmDelete}
+        title="Delete Source"
+        message={`Are you sure you want to delete "${item?.title}"? This cannot be undone.`}
+        confirmText="Delete"
+        variant="danger"
+        isLoading={deleteMutation.isPending}
+      />
     </div>
   );
 };

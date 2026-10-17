@@ -71,8 +71,9 @@ export const AddContentModal: React.FC<AddContentModalProps> = ({ isOpen, onClos
   // Create Content Mutation
   const contentMutation = useMutation({
     mutationFn: (data: CreateContentPayload) => contentService.createContent(data),
-    onSuccess: () => {
-      toast.success('Source added to your stack!');
+    onSuccess: (res: any) => {
+      const msg = res?.meta?.message || 'Added to workspace! Extraction & AI indexing in progress...';
+      toast.success(msg, { duration: 4500 });
       queryClient.invalidateQueries({ queryKey: ['content'] });
       queryClient.invalidateQueries({ queryKey: ['tags'] });
       handleClose();

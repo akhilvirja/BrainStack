@@ -20,6 +20,7 @@ import { contentService } from '../../services/content.service';
 import { ContentCard } from '../../components/content/ContentCard';
 import type { ContentItem } from '../../components/content/ContentCard';
 import { SourceDetailModal } from '../../components/content/SourceDetailModal';
+import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { toast } from 'react-hot-toast';
 
 type ContentTypeFilter = 'all' | 'web' | 'youtube' | 'twitter' | 'google_docs';
@@ -30,6 +31,7 @@ export const TagsPage: React.FC = () => {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<ContentTypeFilter>('all');
   const [selectedDetailItem, setSelectedDetailItem] = useState<ContentItem | null>(null);
+  const [tagToDelete, setTagToDelete] = useState<TagItem | null>(null);
 
   // Fetch all user tags
   const { data: tags = [], isLoading: isLoadingTags } = useQuery({
@@ -69,6 +71,7 @@ export const TagsPage: React.FC = () => {
   const deleteTagMutation = useMutation({
     mutationFn: (id: string) => tagService.deleteTag(id),
     onSuccess: () => {
+      setTagToDelete(null);
       toast.success('Tag deleted');
       queryClient.invalidateQueries({ queryKey: ['tags'] });
       queryClient.invalidateQueries({ queryKey: ['content'] });
@@ -98,9 +101,13 @@ export const TagsPage: React.FC = () => {
 
   const handleDeleteTag = (e: React.MouseEvent, tag: TagItem) => {
     e.stopPropagation();
-    if (confirm(`Delete tag #${tag.title}? This will also un-tag associated notes.`)) {
-      deleteTagMutation.mutate(tag._id);
-      setSelectedTags((prev) => prev.filter((t) => t !== tag.title.toLowerCase()));
+    setTagToDelete(tag);
+  };
+
+  const handleConfirmDeleteTag = () => {
+    if (tagToDelete) {
+      deleteTagMutation.mutate(tagToDelete._id);
+      setSelectedTags((prev) => prev.filter((t) => t !== tagToDelete.title.toLowerCase()));
     }
   };
 
@@ -364,6 +371,18 @@ export const TagsPage: React.FC = () => {
         isOpen={Boolean(activeDetailItem)}
         onClose={() => setSelectedDetailItem(null)}
         onDeleted={() => setSelectedDetailItem(null)}
+      />
+
+      {/* Delete Tag Confirmation Modal */}
+      <ConfirmModal
+        isOpen={Boolean(tagToDelete)}
+        onClose={() => setTagToDelete(null)}
+        onConfirm={handleConfirmDeleteTag}
+        title="Delete Tag"
+        message={`Are you sure you want to delete tag #${tagToDelete?.title}? This will also un-tag associated notes.`}
+        confirmText="Delete Tag"
+        variant="danger"
+        isLoading={deleteTagMutation.isPending}
       />
     </div>
   );

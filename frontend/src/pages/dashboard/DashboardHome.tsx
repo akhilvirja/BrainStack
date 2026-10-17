@@ -34,6 +34,13 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
     queryFn: async () => {
       return await contentService.getAllContent();
     },
+    refetchInterval: (query) => {
+      const items = query.state.data;
+      if (Array.isArray(items) && items.some((i: any) => i.status === 'processing')) {
+        return 2500;
+      }
+      return false;
+    },
   });
 
   const { data: userTags } = useQuery({

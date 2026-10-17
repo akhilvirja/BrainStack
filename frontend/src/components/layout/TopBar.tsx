@@ -1,11 +1,13 @@
 import { useState } from 'react';
-import { Share, Plus, Atom } from 'lucide-react';
+import { Share, Plus, Atom, Sparkles } from 'lucide-react';
 import { AddContentModal } from '../content/AddContentModal';
+import { AskBrainDrawer } from '../ai/AskBrainDrawer';
 import { useAuthStore } from '../../store/useAuthStore';
 import { toast } from 'react-hot-toast';
 
 export const TopBar = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isAskBrainOpen, setIsAskBrainOpen] = useState(false);
   const user = useAuthStore((state) => state.user);
 
   const handleShare = () => {
@@ -30,6 +32,15 @@ export const TopBar = () => {
 
         {/* Action Controls */}
         <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setIsAskBrainOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#c4ebd9]/70 hover:bg-[#b2e4cc] border border-[#9fd5be] text-spruce font-semibold text-xs rounded-lg shadow-xs transition-all cursor-pointer"
+          >
+            <Sparkles size={14} className="text-spruce" />
+            <span>Ask Brain</span>
+          </button>
+
           <button
             type="button"
             onClick={handleShare}
@@ -58,6 +69,11 @@ export const TopBar = () => {
       <AddContentModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
+      />
+
+      <AskBrainDrawer
+        isOpen={isAskBrainOpen}
+        onClose={() => setIsAskBrainOpen(false)}
       />
     </>
   );

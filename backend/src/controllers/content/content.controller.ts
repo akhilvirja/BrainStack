@@ -1,9 +1,12 @@
 import type { Response } from "express";
+import mongoose from "mongoose";
 import { Content, sourceTypes, type SourceType, type ProcessingStatus } from "../../models/content.model.js";
 import { Tag } from "../../models/tags.model.js";
 import type { AuthenticatedRequest } from "../../middlewares/auth.middleware.js";
 import { sendErrorResponse, sendSuccessResponse } from "../../utils/response.js";
 import { extractSource, detectSourceTypeFromUrl } from "../../services/extractors/index.js";
+import { Chunk } from "../../models/chunk.model.js";
+import { vectorizeContent } from "../../services/ai/rag.service.js";
 
 // Helper to normalize canonical URL
 const normalizeUrl = (rawUrl: string): string => {
@@ -38,6 +41,55 @@ const resolveSourceType = (type?: string, url?: string): SourceType => {
   }
 
   return "web";
+};
+
+/**
+ * Asynchronously extracts content and generates vector embeddings in the background
+ * so users never have to wait on a blocking modal spinner.
+ */
+const processContentInBackground = async (
+  contentId: string,
+  userId: string,
+  url: string,
+  sourceType: SourceType
+) => {
+  try {
+    const result = await extractSource(url, sourceType);
+    const content = await Content.findById(contentId);
+    if (!content) return;
+
+    if (
+      !content.title ||
+      content.title.startsWith("Source:") ||
+      content.title === "YouTube Video" ||
+      content.title === "X / Twitter Post" ||
+      content.title === "Published Google Doc" ||
+      content.title.startsWith("Web Source:")
+    ) {
+      content.title = result.title || content.title;
+    }
+
+    if (!content.description) {
+      content.description = result.description || "";
+    }
+
+    content.extractedText = result.text || "";
+    content.metadata = { ...(content.metadata || {}), ...result.metadata };
+    content.status = "completed";
+    content.errorMessage = null;
+    await content.save();
+
+    // Trigger AI vectorization
+    vectorizeContent(contentId, userId).catch((err) => {
+      console.warn(`Background vectorization for ${contentId} failed:`, err?.message);
+    });
+  } catch (err: any) {
+    console.warn(`Background extraction failed for content ${contentId}:`, err?.message);
+    await Content.findByIdAndUpdate(contentId, {
+      status: "failed",
+      errorMessage: err?.message || "Failed to extract content from source.",
+    });
+  }
 };
 
 export const createContent = async (req: AuthenticatedRequest, res: Response) => {
@@ -93,39 +145,13 @@ export const createContent = async (req: AuthenticatedRequest, res: Response) =>
     // Resolve to one of the 4 strict source types
     const resolvedSourceType = resolveSourceType(sourceType || type, effectiveUrl);
 
-    // Execute source content extraction
-    let extractedTitle = (title || "").trim();
-    let extractedDescription = (description || "").trim();
-    let extractedBody = (extractedText || "").trim();
-    let extractedMeta = metadata || {};
-    let status: ProcessingStatus = "completed";
-    let errorMessage: string | null = null;
-
-    try {
-      const result = await extractSource(effectiveUrl, resolvedSourceType);
-      if (!extractedTitle) extractedTitle = result.title;
-      if (!extractedDescription) extractedDescription = result.description;
-      extractedBody = result.text;
-      extractedMeta = { ...result.metadata, ...extractedMeta };
-      status = "completed";
-    } catch (extractErr: any) {
-      console.warn(`Extraction error for ${effectiveUrl}:`, extractErr.message);
-
-      // Return immediate 400 for user-actionable validation violations
-      if (
-        extractErr.message?.includes("Private or draft Google Docs are not supported") ||
-        extractErr.message?.includes("SSRF Protection") ||
-        extractErr.message?.includes("Access to localhost is forbidden")
-      ) {
-        return sendErrorResponse(res, 400, null, extractErr.message);
-      }
-
-      // For network/parsing failures, save as failed so user can retry
-      if (!extractedTitle) {
-        extractedTitle = `Source: ${effectiveUrl.slice(0, 60)}`;
-      }
-      status = "failed";
-      errorMessage = extractErr.message || "Failed to extract content from source.";
+    // Initial placeholder title while processing in background
+    let initialTitle = (title || "").trim();
+    if (!initialTitle) {
+      if (resolvedSourceType === "youtube") initialTitle = "YouTube Video";
+      else if (resolvedSourceType === "twitter") initialTitle = "X / Twitter Post";
+      else if (resolvedSourceType === "google_docs") initialTitle = "Published Google Doc";
+      else initialTitle = `Web Source: ${effectiveUrl.slice(0, 50)}`;
     }
 
     const content = await Content.create({
@@ -133,12 +159,12 @@ export const createContent = async (req: AuthenticatedRequest, res: Response) =>
       sourceType: resolvedSourceType,
       sourceUrl: effectiveUrl,
       canonicalUrl: canonical,
-      title: extractedTitle,
-      description: extractedDescription,
-      extractedText: extractedBody,
-      metadata: extractedMeta,
-      status,
-      errorMessage,
+      title: initialTitle,
+      description: (description || "").trim(),
+      extractedText: (extractedText || "").trim(),
+      metadata: metadata || {},
+      status: "processing",
+      errorMessage: null,
       tags: tagIds,
       link: effectiveUrl,
       type: resolvedSourceType,
@@ -146,7 +172,17 @@ export const createContent = async (req: AuthenticatedRequest, res: Response) =>
 
     const populatedContent = await Content.findById(content._id).populate("tags");
 
-    return sendSuccessResponse(res, 201, populatedContent, "Source added successfully");
+    // Launch background worker without keeping client waiting
+    processContentInBackground(content._id.toString(), userId.toString(), effectiveUrl, resolvedSourceType).catch((err) => {
+      console.warn("Background processContent job failed:", err?.message);
+    });
+
+    return sendSuccessResponse(
+      res,
+      201,
+      populatedContent,
+      "Source added to workspace. Extraction and AI indexing in progress..."
+    );
   } catch (error: any) {
     console.error("Error creating content:", error);
     if (error.code === 11000) {
@@ -278,6 +314,12 @@ export const deleteContent = async (req: AuthenticatedRequest, res: Response) =>
       return sendErrorResponse(res, 404, null, "Source not found or unauthorized");
     }
 
+    // Cascade delete associated chunks
+    await Chunk.deleteMany({
+      contentId: new mongoose.Types.ObjectId(String(id)),
+      userId: new mongoose.Types.ObjectId(String(userId)),
+    });
+
     return sendSuccessResponse(res, 200, null, "Source deleted successfully");
   } catch (error: any) {
     console.error("Error deleting content:", error);
@@ -295,28 +337,17 @@ export const retryExtraction = async (req: AuthenticatedRequest, res: Response) 
       return sendErrorResponse(res, 404, null, "Source not found or unauthorized");
     }
 
-    try {
-      const result = await extractSource(content.sourceUrl, content.sourceType);
-      if (!content.title || content.title.startsWith("Source:")) {
-        content.title = result.title;
-      }
-      if (!content.description) {
-        content.description = result.description;
-      }
-      content.extractedText = result.text;
-      content.metadata = { ...(content.metadata || {}), ...result.metadata };
-      content.status = "completed";
-      content.errorMessage = null;
-      await content.save();
+    content.status = "processing";
+    content.errorMessage = null;
+    await content.save();
 
-      const updated = await Content.findById(content._id).populate("tags");
-      return sendSuccessResponse(res, 200, updated, "Extraction completed successfully");
-    } catch (err: any) {
-      content.status = "failed";
-      content.errorMessage = err.message || "Extraction retry failed";
-      await content.save();
-      return sendErrorResponse(res, 422, null, err.message || "Extraction retry failed");
-    }
+    // Run in background without blocking HTTP response
+    processContentInBackground(content._id.toString(), userId.toString(), content.sourceUrl, content.sourceType).catch((err) => {
+      console.warn("Retry background job error:", err?.message);
+    });
+
+    const updated = await Content.findById(content._id).populate("tags");
+    return sendSuccessResponse(res, 200, updated, "Extraction retry started in background.");
   } catch (error: any) {
     console.error("Error retrying extraction:", error);
     return sendErrorResponse(res, 500, null, error.message || "Server Error");
